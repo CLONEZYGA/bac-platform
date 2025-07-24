@@ -213,7 +213,7 @@ function ThitoLoginForm({ navigation }: { navigation: NavigationProp }) {
       await signIn(email, password);
       navigation.replace('Main');
     } catch (e) {
-      Alert.alert('Login Failed', error || 'Invalid credentials.');
+      // Error is handled by context, just show feedback
     }
   };
 
@@ -242,10 +242,11 @@ function ThitoLoginForm({ navigation }: { navigation: NavigationProp }) {
         onPress={handleLogin}
         disabled={loading}
       />
+      {loading && <Text style={{ textAlign: 'center', marginTop: 8 }}>Logging in...</Text>}
       <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
         <Text style={styles.forgot}>Forgot Password?</Text>
       </TouchableOpacity>
-      {error && <Text style={{ color: 'red', marginTop: 8 }}>{error}</Text>}
+      {error && <Text style={{ color: 'red', marginTop: 8, textAlign: 'center' }}>{error}</Text>}
     </View>
   );
 }

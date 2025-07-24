@@ -1,8 +1,26 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
+import NetInfo from '@react-native-community/netinfo';
+import * as api from '../services/api';
+import { Platform } from 'react-native';
 
-const API_BASE = 'http://localhost:3001/api'; // or your deployed backend
+interface ApiResponse {
+    success: boolean;
+    message?: string;
+    data?: any;
+}
+
+interface AuthResponse extends ApiResponse {
+    userId: string;
+    token: string;
+}
+
+interface UserResponse {
+    id: string;
+    email: string;
+    role: 'student' | 'admin';
+    name?: string;
+}
 
 interface User {
     id: string;
@@ -15,7 +33,7 @@ interface AuthContextType {
     user: User | null;
     loading: boolean;
     signIn: (email: string, password: string) => Promise<void>;
-    signUp: (email: string, password: string, role: 'student' | 'admin') => Promise<void>;
+    signUp: (email: string, password: string, role: 'student' | 'admin', name?: string) => Promise<void>;
     signOut: () => Promise<void>;
     error: string | null;
 }
@@ -45,51 +63,104 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     };
 
+    const checkNetworkConnection = async () => {
+        const networkState = await NetInfo.fetch();
+        if (!networkState.isConnected) {
+            throw new Error('No internet connection available');
+        }
+    };
+
     const signIn = async (email: string, password: string) => {
         try {
             setLoading(true);
             setError(null);
 
-            const res = await axios.post(`${API_BASE}/login`, { email, password });
-            if (res.data.success) {
-                const userId = res.data.userId;
-                const userRes = await axios.get(`${API_BASE}/users/${userId}`);
-                const userData = userRes.data;
+            // Check network connection first
+            await checkNetworkConnection();
+
+            const res = await api.login(email, password) as AuthResponse;
+            
+            if (!res.success || !res.token || !res.userId) {
+                throw new Error(res.message || 'Invalid credentials');
+            }
+
+            // Store token securely
+            await AsyncStorage.setItem('token', res.token);
+
+            try {
+                // Fetch user profile with the new token
+                const userRes = await api.fetchUser(res.userId, res.token) as UserResponse;
+                
+                if (!userRes || !userRes.id) {
+                    throw new Error('Failed to fetch user data');
+                }
+
                 const user: User = {
-                    id: userData.id,
-                    email: userData.email,
-                    role: 'student', // or userData.role if available
-                    displayName: userData.name,
+                    id: userRes.id,
+                    email: userRes.email,
+                    role: userRes.role || 'student',
+                    displayName: userRes.name,
                 };
+
+                // Store user profile
                 await AsyncStorage.setItem('user', JSON.stringify(user));
                 setUser(user);
-            } else {
-                setError('Invalid credentials');
-                throw new Error('Invalid credentials');
+            } catch (userError) {
+                // Clean up if user fetch fails
+                await AsyncStorage.removeItem('token');
+                throw userError;
             }
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'An error occurred during sign in');
-            throw err;
+            const errorMessage = err instanceof Error ? err.message : 'An error occurred during sign in';
+            setError(errorMessage);
+            throw new Error(errorMessage);
         } finally {
             setLoading(false);
         }
     };
 
-    const signUp = async (email: string, password: string, role: 'student' | 'admin') => {
+    const signUp = async (email: string, password: string, role: 'student' | 'admin', name?: string) => {
         try {
             setLoading(true);
             setError(null);
-            // TODO: Implement actual registration endpoint
-            const mockUser: User = {
-                id: '1',
-                email,
-                role,
-            };
-            await AsyncStorage.setItem('user', JSON.stringify(mockUser));
-            setUser(mockUser);
+
+            // Check network connection first
+            await checkNetworkConnection();
+
+            const res = await api.signUp(email, password, role, name) as AuthResponse;
+            
+            if (!res.success || !res.token || !res.userId) {
+                throw new Error(res.message || 'Registration failed');
+            }
+
+            try {
+                // Store token securely
+                await AsyncStorage.setItem('token', res.token);
+
+                if (!res.user) {
+                    throw new Error('User data missing from response');
+                }
+
+                const user: User = {
+                    id: res.userId,
+                    email: res.user.email,
+                    role: res.user.role,
+                    displayName: res.user.name,
+                    initials: res.user.initials
+                };
+
+                // Store user profile
+                await AsyncStorage.setItem('user', JSON.stringify(user));
+                setUser(user);
+            } catch (userError) {
+                // Clean up if user fetch fails
+                await AsyncStorage.removeItem('token');
+                throw userError;
+            }
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'An error occurred during sign up');
-            throw err;
+            const errorMessage = err instanceof Error ? err.message : 'An error occurred during sign up';
+            setError(errorMessage);
+            throw new Error(errorMessage);
         } finally {
             setLoading(false);
         }
@@ -99,6 +170,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
             setLoading(true);
             await AsyncStorage.removeItem('user');
+            await AsyncStorage.removeItem('token'); // Remove token
             setUser(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'An error occurred during sign out');

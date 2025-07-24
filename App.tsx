@@ -11,8 +11,12 @@ import { UserProvider } from './context/UserContext';
 // Import screens (we'll create these next)
 import LoginScreen, { LoginForm } from './screens/shared/LoginScreen';
 import RegisterScreen from './screens/shared/RegisterScreen';
+import LearnMoreScreen from './screens/shared/LearnMoreScreen';
+import TermsAndPrivacyScreen from './screens/shared/TermsAndPrivacyScreen';
 import StudentDashboardScreen from './screens/student/DashboardScreen';
 import AdminDashboardScreen from './screens/admin/DashboardScreen';
+import StudentNavigator from './navigation/StudentNavigator';
+// import AdminNavigator from './navigation/AdminNavigator'; // REMOVED
 
 const Stack = createNativeStackNavigator();
 
@@ -25,47 +29,23 @@ const Navigation = () => {
         return null;
     }
 
-    return (
-        <Stack.Navigator
-            screenOptions={{
-                headerStyle: {
-                    backgroundColor: theme.colors.primary,
-                },
-                headerTintColor: '#fff',
-                headerTitleStyle: {
-                    fontFamily: theme.typography.fontFamily.medium,
-                },
-            }}
-        >
-            {!user ? (
-                // Auth screens
-                <>
-                    <Stack.Screen 
-                        name="Login" 
-                        component={LoginScreen}
-                        options={{ headerShown: false }}
-                    />
-                    <Stack.Screen 
-                        name="LoginForm" 
-                        component={LoginForm}
-                        options={{ headerShown: false }}
-                    />
-                    <Stack.Screen 
-                        name="Register" 
-                        component={RegisterScreen}
-                        options={{ headerShown: false }}
-                    />
-                </>
-            ) : (
-                // Main app screens (tab navigator)
-                <Stack.Screen 
-                    name="Main" 
-                    component={TabNavigator}
-                    options={{ headerShown: false }}
-                />
-            )}
-        </Stack.Navigator>
-    );
+    if (!user) {
+        // Auth screens
+        return (
+            <Stack.Navigator screenOptions={{ headerShown: false }}>
+                <Stack.Screen name="Login" component={LoginScreen} />
+                <Stack.Screen name="LoginForm" component={LoginForm} />
+                <Stack.Screen name="Register" component={RegisterScreen} />
+                <Stack.Screen name="LearnMore" component={LearnMoreScreen} />
+                <Stack.Screen name="TermsAndPrivacy" component={TermsAndPrivacyScreen} />
+            </Stack.Navigator>
+        );
+    }
+    if (user.role === 'admin') {
+        return <Text>Admins must use the admin portal.</Text>;
+    }
+    // Default: student
+    return <StudentNavigator />;
 };
 
 export default function App() {

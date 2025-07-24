@@ -1,0 +1,17 @@
+{
+  "dev": {
+    "API_BASE_URL": "http://192.168.8.8:3001/api",
+    "enableDevTools": true,
+    "debuggerEnabled": true
+  },
+  "staging": {
+    "API_BASE_URL": "http://192.168.8.8:3001/api",
+    "enableDevTools": true,
+    "debuggerEnabled": false
+  },
+  "production": {
+    "API_BASE_URL": "https://your-production-url.com/api",
+    "enableDevTools": false,
+    "debuggerEnabled": false
+  }
+}

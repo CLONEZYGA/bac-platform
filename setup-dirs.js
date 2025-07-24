@@ -25,6 +25,19 @@ directories.forEach(dir => {
     }
 });
 
+const adminDirectories = [
+    'admin',
+    'admin/screens',
+    'admin/navigation',
+];
+adminDirectories.forEach(dir => {
+    const dirPath = path.join(__dirname, dir);
+    if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
+        console.log(`Created directory: ${dir}`);
+    }
+});
+
 // Create placeholder files
 const files = [
     'components/index.ts',

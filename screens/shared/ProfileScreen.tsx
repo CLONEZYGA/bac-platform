@@ -1,75 +1,35 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { theme } from '../../constants/theme';
-import { useUser } from '../../context/UserContext';
-import { NavigationButtons } from '../../components/NavigationButtons';
+import { useAuth } from '../../context/AuthContext';
 
 export default function ProfileScreen() {
-  const { user, setUser, useMock, setUseMock } = useUser();
+  const { user, signOut } = useAuth();
+
+  if (!user) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.name}>No user logged in.</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      {/* Data Mode Toggle */}
-      <View style={styles.toggleContainer}>
-        <TouchableOpacity
-          style={[styles.toggleButton, useMock && styles.toggleActive]}
-          onPress={() => setUseMock(true)}
-        >
-          <Text style={styles.toggleText}>Mock Data</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.toggleButton, !useMock && styles.toggleActive]}
-          onPress={() => setUseMock(false)}
-        >
-          <Text style={styles.toggleText}>Real Data</Text>
-        </TouchableOpacity>
-      </View>
-      {/* User Switcher */}
-      <View style={styles.switcherContainer}>
-        <TouchableOpacity
-          style={[styles.switcherButton, user.id === 'thuto' && styles.switcherActive]}
-          onPress={() => setUser && setUser({ ...user, ...require('../../context/UserContext').users.thuto })}
-        >
-          <Text style={styles.switcherText}>Thuto Moleps</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.switcherButton, user.id === 'amy' && styles.switcherActive]}
-          onPress={() => setUser && setUser({ ...user, ...require('../../context/UserContext').users.amy })}
-        >
-          <Text style={styles.switcherText}>Amy Mosdada</Text>
-        </TouchableOpacity>
-      </View>
-      <Text style={styles.userIdText}>Current User: {user.id}</Text>
       <View style={styles.avatarContainer}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{user.initials}</Text>
+          <Text style={styles.avatarText}>{user.displayName ? user.displayName[0] : user.email[0]}</Text>
         </View>
-        <Text style={styles.name}>{user.name}</Text>
-        <Text style={styles.program}>{user.program}</Text>
-        <Text style={styles.group}>{user.group}</Text>
+        <Text style={styles.name}>{user.displayName || user.email}</Text>
+        <Text style={styles.email}>{user.email}</Text>
+        {user.group && <Text style={styles.group}>Group: {user.group}</Text>}
+        {user.role && <Text style={styles.role}>Role: {user.role}</Text>}
       </View>
       <View style={styles.menu}>
-        <TouchableOpacity style={styles.menuItem}>
-          <Text style={styles.menuText}>Registered</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.menuItem}>
-          <Text style={styles.menuText}>Applications</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.menuItem}>
-          <Text style={styles.menuText}>My Profile</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.menuItem}>
-          <Text style={styles.menuText}>Attendance</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.menuItem}>
+        <TouchableOpacity style={styles.menuItem} onPress={signOut}>
           <Text style={[styles.menuText, { color: theme.colors.error }]}>Logout</Text>
         </TouchableOpacity>
       </View>
-      
-      <NavigationButtons 
-        showForward={false}
-        backLabel="Attendance"
-      />
     </View>
   );
 }
@@ -79,52 +39,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.background,
     alignItems: 'center',
-    paddingTop: 16,
-  },
-  toggleContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 8,
-    gap: 8,
-  },
-  toggleButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: '#E0E6F0',
-    marginHorizontal: 4,
-  },
-  toggleActive: {
-    backgroundColor: theme.colors.primary,
-  },
-  toggleText: {
-    color: theme.colors.text,
-    fontWeight: 'bold',
-  },
-  switcherContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 8,
-    gap: 8,
-  },
-  switcherButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: '#E0E6F0',
-    marginHorizontal: 4,
-  },
-  switcherActive: {
-    backgroundColor: theme.colors.primary,
-  },
-  switcherText: {
-    color: theme.colors.text,
-    fontWeight: 'bold',
-  },
-  userIdText: {
-    color: theme.colors.textSecondary,
-    fontSize: 12,
-    marginBottom: 4,
+    paddingTop: 32,
   },
   avatarContainer: {
     alignItems: 'center',
@@ -150,12 +65,18 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     marginBottom: 4,
   },
-  program: {
+  email: {
     fontSize: theme.typography.fontSize.md,
     color: theme.colors.textSecondary,
-    textAlign: 'center',
+    marginBottom: 4,
   },
   group: {
+    fontSize: theme.typography.fontSize.sm,
+    color: theme.colors.textSecondary,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  role: {
     fontSize: theme.typography.fontSize.sm,
     color: theme.colors.textSecondary,
     marginTop: 2,
@@ -172,6 +93,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 2,
+    marginTop: 32,
   },
   menuItem: {
     paddingVertical: 16,
@@ -182,5 +104,6 @@ const styles = StyleSheet.create({
   menuText: {
     fontSize: theme.typography.fontSize.md,
     color: theme.colors.text,
+    textAlign: 'center',
   },
 }); 

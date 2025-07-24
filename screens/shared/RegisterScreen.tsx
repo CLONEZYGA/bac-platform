@@ -11,37 +11,54 @@ import {
     TextInput,
     Image,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Button } from '../../components';
 import { useAuth } from '../../context/AuthContext';
 import { theme } from '../../constants/theme';
 import axios from 'axios';
+import TermsAndPrivacyScreen from './TermsAndPrivacyScreen';
+import { getApiUrl, checkServerHealth } from '@/app/services/api.ts';
+import NetInfo from '@react-native-community/netinfo';
+import * as Device from 'expo-device';
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = getApiUrl();
 
 type RootStackParamList = {
     Login: undefined;
-    Register: undefined;
+    Register: { hasAcceptedTerms?: boolean };
+    TermsAndPrivacy: { section?: 'terms' | 'privacy' };
+    Main: undefined;
 };
 
 type RegisterScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Register'>;
 
-export default function RegisterScreen() {
+type RegisterScreenRouteProp = RouteProp<RootStackParamList, 'Register'>;
+
+interface RegisterScreenProps {
+    route: RegisterScreenRouteProp;
+}
+
+export default function RegisterScreen({ route }: RegisterScreenProps) {
     const navigation = useNavigation<RegisterScreenNavigationProp>();
-    const { signIn } = useAuth();
+    const { signUp } = useAuth();
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
-    const [agree, setAgree] = useState(false);
+    const [agree, setAgree] = useState(route.params?.hasAcceptedTerms || false);
     const [loading, setLoading] = useState(false);
+    const [loadingProgress, setLoadingProgress] = useState(0);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(false);
 
     const validate = () => {
-        if (!name || !email || !password || !confirmPassword) {
+        if (!name.trim() || !email || !password || !confirmPassword) {
             setError('All fields are required.');
+            return false;
+        }
+        if (name.trim().length < 2) {
+            setError('Please enter your full name.');
             return false;
         }
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
@@ -66,24 +83,78 @@ export default function RegisterScreen() {
 
     const handleRegister = async () => {
         if (!validate()) return;
+        
         setLoading(true);
+        setLoadingProgress(0);
+        setError('');
+        
+        // Debug information
+        console.log('Registration Debug Info:', {
+            apiUrl: API_BASE,
+            platform: Platform.OS,
+            isDevice: await Device.isDevice
+        });
+
+        let progressInterval: NodeJS.Timeout | null = null;
+        
         try {
-            const res = await axios.post(`${API_BASE}/register`, { name, email, password });
-            if (res.data.success) {
-                setSuccess(true);
-                await signIn(email, password);
-                navigation.replace('Main');
-            } else {
-                setError(res.data.message || 'Registration failed.');
+            // Check network connectivity
+            const networkState = await NetInfo.fetch();
+            console.log('Network State:', networkState);
+            
+            if (!networkState.isConnected) {
+                throw new Error('No internet connection. Please check your network settings.');
             }
-        } catch (err) {
-            if (err.response && err.response.status === 409) {
-                setError('Email already registered.');
-            } else {
-                setError('Server error or email already registered.');
+
+            // Check server health
+            const isHealthy = await checkServerHealth();
+            if (!isHealthy) {
+                throw new Error('Unable to connect to server. Please try again later.');
             }
+            
+            // Start progress animation
+            progressInterval = setInterval(() => {
+                setLoadingProgress(prev => {
+                    if (prev >= 90) return prev; // Stop at 90% until complete
+                    return prev + 10;
+                });
+            }, 500);
+
+            console.log('Starting registration process...');
+            
+            // Sign up the user
+            await signUp(email, password, 'student', name);
+            console.log('Registration successful');
+            setSuccess(true);
+            
+            // Set progress to 100% on success
+            setLoadingProgress(100);
+            
+            // The user will be automatically logged in since signUp sets the user in AuthContext
+            setTimeout(() => {
+                navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'Main' }],
+                });
+            }, 500); // Short delay to show 100%
+            
+        } catch (error: any) {
+            console.error('Registration error:', error);
+            if (error?.response?.data?.message) {
+                setError(error.response.data.message);
+            } else if (error?.message) {
+                setError(error.message);
+            } else {
+                setError('Registration failed. Please try again.');
+            }
+            setLoadingProgress(0);
         } finally {
-            setLoading(false);
+            if (progressInterval) {
+                clearInterval(progressInterval);
+            }
+            if (!success) {
+                setLoading(false);
+            }
         }
     };
 
@@ -105,14 +176,29 @@ export default function RegisterScreen() {
                     <TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
                     <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
                     <TextInput style={styles.input} placeholder="Confirm Password" value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry />
-                    <TouchableOpacity style={styles.checkboxRow} onPress={() => setAgree(a => !a)}>
-                        <View style={[styles.checkbox, agree && styles.checkboxChecked]} />
-                        <Text style={styles.checkboxLabel}>I agree to the <Text style={styles.link}>Terms</Text> and <Text style={styles.link}>Privacy Policy</Text></Text>
+                    <View style={styles.checkboxRow}>
+                        <TouchableOpacity onPress={() => setAgree((a: boolean) => !a)}>
+                            <View style={[styles.checkbox, agree && styles.checkboxChecked]} />
+                        </TouchableOpacity>
+                        <Text style={styles.checkboxLabel}>I agree to the</Text>
+                        <TouchableOpacity onPress={() => navigation.push('TermsAndPrivacy', { section: 'terms' })}>
+                            <Text style={[styles.link, { marginHorizontal: 2 }]}>Terms</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.checkboxLabel}>and</Text>
+                        <TouchableOpacity onPress={() => navigation.push('TermsAndPrivacy', { section: 'privacy' })}>
+                            <Text style={[styles.link, { marginLeft: 2 }]}>Privacy Policy</Text>
+                        </TouchableOpacity>
+                    </View>
+                    <TouchableOpacity 
+                        style={[styles.button, !agree && { opacity: 0.6 }]} 
+                        onPress={handleRegister} 
+                        disabled={loading || !agree}
+                    >
+                        <Text style={styles.buttonText}>
+                            {loading ? `Registering ${loadingProgress}%` : 'Register'}
+                        </Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.button, !agree && { opacity: 0.6 }]} onPress={handleRegister} disabled={loading || !agree}>
-                        <Text style={styles.buttonText}>{loading ? 'Registering...' : 'Register'}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => navigation.goBack()}>
+                    <TouchableOpacity onPress={() => navigation.replace('Login')}>
                         <Text style={styles.link}>Back to Login</Text>
                     </TouchableOpacity>
                 </View>

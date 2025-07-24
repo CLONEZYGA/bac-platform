@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     View,
     StyleSheet,
@@ -6,98 +6,86 @@ import {
     Text,
     TouchableOpacity,
     TextInput,
+    Modal,
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
-import { Button, NavigationButtons } from '../../components';
+import { Button } from '../../components';
 import { theme } from '../../constants/theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Badge } from '../../components/Badge';
 import { Tooltip } from '../../components/Tooltip';
 import { Toast } from '../../components/Toast';
-import { ProgressBar } from '../../components/ProgressBar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { connectSocket, onSocketEvent } from '../../services/api';
+import axios from 'axios';
 
-// Mock data - this would come from your backend
-const mockApplicationStatus = {
-    status: 'pending', // 'pending' | 'approved' | 'rejected' | 'in_review'
-    lastUpdated: '2024-03-15',
-    documents: [
-        { name: 'ID Card', status: 'approved' },
-        { name: 'Academic Certificate', status: 'pending' },
-        { name: 'Proof of Address', status: 'in_review' },
-    ],
-};
-
-const statusExplanations: Record<string, string> = {
-    approved: 'This document is approved. No further action needed.',
-    pending: 'This document is pending. Please upload or update as required.',
-    in_review: 'This document is under review. Check back soon.',
-    rejected: 'This document was rejected. Please re-upload a valid document.',
-};
-
-const statusColors: Record<string, string> = {
-    approved: theme.colors.approved || theme.colors.success,
-    pending: theme.colors.pending || theme.colors.warning,
-    in_review: theme.colors.inReview || theme.colors.info,
-    rejected: theme.colors.rejected || theme.colors.error,
-};
-
-const GRADEBOOK_UNLOCK_KEY = 'gradebook_unlocked';
+const API_BASE = 'http://localhost:3001/api';
 
 export default function DashboardScreen() {
     const { user, signOut } = useAuth();
-    const [toast, setToast] = React.useState<{ visible: boolean; message: string }>({ visible: false, message: '' });
-    const [unlockCode, setUnlockCode] = React.useState('');
-    const [unlockSuccess, setUnlockSuccess] = React.useState(false);
-    const [gradebookUnlocked, setGradebookUnlocked] = React.useState(false);
+    const [toast, setToast] = useState({ visible: false, message: '' });
+    const [application, setApplication] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [showModal, setShowModal] = useState(false);
+    const [form, setForm] = useState({ name: '', email: '' });
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState('');
 
-    React.useEffect(() => {
-        AsyncStorage.getItem(GRADEBOOK_UNLOCK_KEY).then(val => {
-            if (val === 'true') setGradebookUnlocked(true);
+    useEffect(() => {
+        if (!user) return;
+        setLoading(true);
+        // Fetch application for this student
+        AsyncStorage.getItem('token').then(token => {
+            axios.get(`${API_BASE}/users/${user.id}/application-status`, {
+                headers: { Authorization: `Bearer ${token}` },
+            })
+                .then(res => setApplication(res.data))
+                .catch(() => setApplication(null))
+                .finally(() => setLoading(false));
         });
-    }, []);
+    }, [user]);
 
-    const handleUnlock = async () => {
-        // For dev: accept any 4-digit code
-        if (/^\d{4}$/.test(unlockCode)) {
-            await AsyncStorage.setItem(GRADEBOOK_UNLOCK_KEY, 'true');
-            setGradebookUnlocked(true);
-            setUnlockSuccess(true);
-            setUnlockCode('');
-            setToast({ visible: true, message: 'Gradebook Login now available' });
-            setTimeout(() => setUnlockSuccess(false), 2000);
-        } else {
-            setToast({ visible: true, message: 'Enter a valid 4-digit code' });
+    // Real-time updates
+    useEffect(() => {
+        if (!user?.id) return;
+        const socket = connectSocket(user.id);
+        onSocketEvent('applicationStatusUpdated', (data) => {
+            setApplication(data);
+            setToast({ visible: true, message: 'Application status updated!' });
+        });
+        onSocketEvent('notification', (data) => {
+            setToast({ visible: true, message: data.title });
+        });
+        return () => { if (socket) socket.disconnect(); };
+    }, [user?.id]);
+
+    const handleSubmit = async () => {
+        setSubmitting(true);
+        setError('');
+        try {
+            const token = await AsyncStorage.getItem('token');
+            console.log('Submitting application with token:', token); // Debug log
+            const res = await axios.post(`${API_BASE}/applications`, {
+                studentName: form.name,
+                email: form.email,
+            }, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            setApplication(res.data.application);
+            setShowModal(false);
+            setToast({ visible: true, message: 'Application submitted!' });
+        } catch (e) {
+            const backendError = e.response?.data?.error || 'Failed to submit application.';
+            setError(backendError);
+            if (backendError === 'Invalid token' || backendError === 'Missing or invalid token') {
+                setTimeout(() => {
+                    setError('Session expired. Please log in again.');
+                    signOut();
+                }, 1000);
+            }
+        } finally {
+            setSubmitting(false);
         }
-    };
-
-    // Mock: add lastUpdated to each doc
-    const documents = mockApplicationStatus.documents.map((doc, i) => ({
-        ...doc,
-        lastUpdated: `2024-03-1${i + 2}`,
-    }));
-    const totalDocs = documents.length;
-    const completedDocs = documents.filter(doc => doc.status === 'approved').length;
-    const progressPercent = Math.round((completedDocs / totalDocs) * 100);
-    const stalled = documents.some(doc => doc.status === 'rejected' || doc.status === 'pending');
-
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case 'approved':
-                return theme.colors.success;
-            case 'rejected':
-                return theme.colors.error;
-            case 'in_review':
-                return theme.colors.info;
-            default:
-                return theme.colors.warning;
-        }
-    };
-
-    const getStatusText = (status: string) => {
-        return status.split('_').map(word => 
-            word.charAt(0).toUpperCase() + word.slice(1)
-        ).join(' ');
     };
 
     return (
@@ -117,81 +105,49 @@ export default function DashboardScreen() {
 
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Application Status</Text>
-                    <View style={styles.statusCard}>
-                        <View style={styles.statusHeader}>
-                            <Text style={styles.statusLabel}>Current Status:</Text>
-                            <Text
-                                style={[
-                                    styles.statusValue,
-                                    { color: getStatusColor(mockApplicationStatus.status) },
-                                ]}
-                            >
-                                {getStatusText(mockApplicationStatus.status)}
+                    {loading ? (
+                        <Text>Loading...</Text>
+                    ) : application ? (
+                        <View style={styles.statusCard}>
+                            <View style={styles.statusHeader}>
+                                <Text style={styles.statusLabel}>Current Status:</Text>
+                                <Text style={[styles.statusValue, { color: theme.colors.primary }]}> {application.status}</Text>
+                            </View>
+                            <Text style={styles.lastUpdated}>
+                                Last updated: {application.lastUpdated}
                             </Text>
                         </View>
-                        <Text style={styles.lastUpdated}>
-                            Last updated: {mockApplicationStatus.lastUpdated}
-                        </Text>
-                    </View>
-                </View>
-
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Required Documents</Text>
-                    <ProgressBar percent={progressPercent} />
-                    {stalled && (
-                        <View style={styles.stalledBox}>
-                            <Text style={styles.stalledText}>Your application is stalled due to missing or rejected documents. Please resolve to proceed.</Text>
-                        </View>
+                    ) : (
+                        <Button title="Submit Application" onPress={() => setShowModal(true)} />
                     )}
-                    {documents.map((doc, index) => (
-                        <View key={index} style={styles.documentCard}>
-                            <View style={styles.documentInfo}>
-                                <Text style={styles.documentName}>{doc.name}</Text>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                                    <Badge color={statusColors[doc.status]} label={getStatusText(doc.status)} />
-                                    <Tooltip text={statusExplanations[doc.status]} />
-                                </View>
-                                <Text style={styles.lastUpdated}>Last updated: {doc.lastUpdated}</Text>
-                            </View>
-                            {doc.status !== 'approved' && (
-                                <Button
-                                    title="Upload"
-                                    size="large"
-                                    onPress={() => {
-                                        setToast({ visible: true, message: `Uploaded ${doc.name} successfully!` });
-                                    }}
-                                    style={{ minWidth: 120 }}
-                                />
-                            )}
-                        </View>
-                    ))}
                 </View>
 
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Quick Actions</Text>
-                    <View style={styles.actionsContainer}>
-                        <TouchableOpacity style={styles.actionButton} onPress={() => setToast({ visible: true, message: 'Download started!' })}>
-                            <Text style={styles.actionButtonText}>Download All Docs</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.actionButton} onPress={() => setToast({ visible: true, message: 'Contacting support...' })}>
-                            <Text style={styles.actionButtonText}>Contact Support</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.actionButton} onPress={() => setToast({ visible: true, message: 'Viewing timeline...' })}>
-                            <Text style={styles.actionButtonText}>Application Timeline</Text>
-                        </TouchableOpacity>
+                <Modal visible={showModal} animationType="slide" transparent>
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.modalContent}>
+                            <Text style={styles.sectionTitle}>Submit Application</Text>
+                            <TextInput
+                                style={styles.input}
+                                placeholder="Full Name"
+                                value={form.name}
+                                onChangeText={v => setForm(f => ({ ...f, name: v }))}
+                            />
+                            <TextInput
+                                style={styles.input}
+                                placeholder="Email"
+                                value={form.email}
+                                onChangeText={v => setForm(f => ({ ...f, email: v }))}
+                                autoCapitalize="none"
+                                keyboardType="email-address"
+                            />
+                            {error ? <Text style={{ color: 'red', marginBottom: 8 }}>{error}</Text> : null}
+                            <Button title={submitting ? 'Submitting...' : 'Submit'} onPress={handleSubmit} disabled={submitting} />
+                            <Button title="Cancel" variant="outline" onPress={() => setShowModal(false)} />
+                        </View>
                     </View>
-                </View>
+                </Modal>
+
             </ScrollView>
-            
-            <NavigationButtons 
-                showBack={false}
-                forwardLabel="View Classes"
-                onForwardPress={() => {
-                    // Navigate to My Classes screen
-                    setToast({ visible: true, message: 'Navigating to My Classes...' });
-                }}
-            />
-            
             <Toast message={toast.message} visible={toast.visible} onHide={() => setToast({ ...toast, visible: false })} />
         </SafeAreaView>
     );
@@ -248,57 +204,26 @@ const styles = StyleSheet.create({
         fontSize: theme.typography.fontSize.sm,
         color: theme.colors.textSecondary,
     },
-    documentCard: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        backgroundColor: theme.colors.surface,
-        borderRadius: theme.borderRadius.md,
-        padding: theme.spacing.md,
-        marginBottom: theme.spacing.sm,
-        ...theme.shadows.small,
-    },
-    documentInfo: {
-        flex: 1,
-    },
-    documentName: {
-        fontSize: theme.typography.fontSize.md,
-        color: theme.colors.text,
-        fontFamily: theme.typography.fontFamily.medium,
-        marginBottom: theme.spacing.xs,
-    },
-    stalledBox: {
-        backgroundColor: theme.colors.warning,
-        borderRadius: theme.borderRadius.md,
-        padding: theme.spacing.md,
-        marginBottom: theme.spacing.md,
-    },
-    stalledText: {
-        color: theme.colors.text,
-        fontSize: theme.typography.fontSize.md,
-        fontFamily: theme.typography.fontFamily.medium,
-    },
-    actionsContainer: {
-        flexDirection: 'column',
-        gap: theme.spacing.md,
-    },
-    actionButton: {
-        backgroundColor: theme.colors.primary,
-        borderRadius: theme.borderRadius.md,
-        padding: theme.spacing.lg,
-        alignItems: 'center',
-        marginBottom: theme.spacing.md,
-        ...theme.shadows.small,
-    },
-    actionButtonText: {
-        color: '#FFFFFF',
-        fontSize: theme.typography.fontSize.lg,
-        fontFamily: theme.typography.fontFamily.bold,
-    },
     input: {
+        width: '100%',
+        padding: 12,
         borderWidth: 1,
-        borderColor: theme.colors.border,
-        borderRadius: theme.borderRadius.md,
-        padding: theme.spacing.md,
+        borderColor: '#ccc',
+        borderRadius: 8,
+        marginBottom: 16,
+        backgroundColor: '#fff',
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.3)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    modalContent: {
+        width: '90%',
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        padding: 24,
+        alignItems: 'center',
     },
 }); 

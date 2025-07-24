@@ -53,7 +53,6 @@ export default function LessonsScreen() {
       />
       
       <NavigationButtons 
-        backLabel="My Classes"
         forwardLabel="Attendance"
         onForwardPress={() => {
           // Navigate to Attendance screen
